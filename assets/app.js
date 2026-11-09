@@ -53,15 +53,11 @@
   function fecha(iso) { var d = new Date(iso); return d.getDate() + ' ' + MES[d.getMonth()]; }
   function cliente(id) { var c = state.clientes.filter(function (x) { return x.id === id; })[0]; return c ? c.nombre : ''; }
   function clienteSel() { var r = document.querySelector('input[name=cli]:checked'); return r ? r.value : ''; }
-  function fillTalentos(cid, keep) {
-    var list = state.talentos.filter(function (t) { return t.cuenta_id === cid; }), sel = $('tal');
-    if (!cid) { sel.disabled = true; sel.innerHTML = '<option value="">Primero elige el cliente</option>'; return; }
-    if (!list.length) { sel.disabled = true; sel.innerHTML = '<option value="">Todavía no hay talentos cargados para este cliente</option>'; return; }
-    sel.disabled = false;
-    sel.innerHTML = '<option value="">Elige el talento</option>' + list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.nombre) + '</option>'; }).join('');
-    if (keep) sel.value = keep;
+  // Talento: el cargado (si el @ coincide), el @ del link o, en reels de Instagram, se identifica al medir
+  function quien(e) {
+    var t = state.talentos.filter(function (x) { return x.id === e.talento_id; })[0];
+    return t ? t.nombre : (e.talento_handle ? '@' + e.talento_handle : 'Talento por identificar');
   }
-  function nombre(id) { var t = state.talentos.filter(function (x) { return x.id === id; })[0]; return t ? t.nombre : 'Talento'; }
 
   function renderLista() {
     var box = $('sent');
@@ -69,7 +65,7 @@
     box.innerHTML = '<ul class="sent">' + state.envios.map(function (e) {
       var q = e.estado === 'en_cola';
       return '<li' + (e.id === state.recien ? ' class="new"' : '') + '><span class="net ' + e.red + '" role="img" aria-label="' + NET[e.red] + '">' + ICON[e.red] + '</span>' +
-        '<span class="who"><b>' + esc(nombre(e.talento_id)) + '</b><small>' + esc(cliente(e.cuenta_id)) + ' · ' + esc(e.formato) + ' · enviada el ' + fecha(e.creado_en) + (e.salida_nueva ? '' : ' · complementa una salida') + '</small></span>' +
+        '<span class="who"><b>' + esc(quien(e)) + '</b><small>' + esc(cliente(e.cuenta_id)) + ' · ' + esc(e.formato) + ' · enviada el ' + fecha(e.creado_en) + (e.salida_nueva ? '' : ' · complementa una salida') + '</small></span>' +
         '<span class="st ' + (q ? 'q' : 'm') + '">' + (q ? 'En cola' : 'Medida') + '</span>' +
         (q ? '<span class="acts"><button type="button" class="link-btn" data-edit="' + e.id + '">Corregir</button><button type="button" class="link-btn" data-del="' + e.id + '">Quitar</button></span>' : '') + '</li>';
     }).join('') + '</ul>';
@@ -77,7 +73,7 @@
 
   function check() {
     var l = leer($('url').value);
-    $('send').disabled = !(state.token && clienteSel() && $('tal').value && l && !l.bad);
+    $('send').disabled = !(state.token && clienteSel() && l && !l.bad);
     $('wait').hidden = !!state.token;
   }
 
@@ -89,13 +85,13 @@
     r.className = 'read';
     r.innerHTML = '<span class="net ' + l.net + '" aria-hidden="true">' + ICON[l.net] + '</span><dl>' +
       '<div><dt>Red</dt><dd>' + NET[l.net] + '</dd></div><div><dt>Formato</dt><dd>' + l.fmt + '</dd></div>' +
-      (l.who ? '<div><dt>Cuenta</dt><dd>' + esc(l.who) + '</dd></div>' : '') +
+      '<div><dt>Talento</dt><dd>' + (l.who ? esc(l.who) : 'Lo identificamos al medir') + '</dd></div>' +
       '<div><dt>Fecha y métricas</dt><dd>Las leemos nosotros</dd></div></dl>';
     check();
   }
 
   function resetForm() {
-    $('f').reset(); state.editando = null; $('read').hidden = true; fillTalentos(clienteSel());
+    $('f').reset(); state.editando = null; $('read').hidden = true; $('more').open = false;
     $('h-form').textContent = 'Enviar una publicación'; $('send').textContent = 'Enviar publicación'; $('cancel').hidden = true;
     $('ferr').hidden = true; check();
   }
@@ -104,11 +100,12 @@
     var e = state.envios.filter(function (x) { return x.id === id; })[0]; if (!e) return;
     state.editando = id;
     var r = document.querySelector('input[name=cli][value="' + e.cuenta_id + '"]'); if (r) r.checked = true;
-    fillTalentos(e.cuenta_id, e.talento_id); $('url').value = e.link;
+    $('url').value = e.link;
     document.querySelector('input[name=kind][value=' + (e.salida_nueva ? 'new' : 'add') + ']').checked = true;
     $('pay').value = e.valor_pagado_cop ? Number(e.valor_pagado_cop).toLocaleString('es-CO') : '';
+    $('more').open = !e.salida_nueva || !!e.valor_pagado_cop;
     $('h-form').textContent = 'Corregir publicación'; $('send').textContent = 'Guardar cambios'; $('cancel').hidden = false;
-    $('done').hidden = true; $('f').hidden = false; showRead(); $('tal').focus();
+    $('done').hidden = true; $('f').hidden = false; showRead(); $('url').focus();
   }
 
   function newToken() { state.token = ''; check(); if (window.turnstile && state.widget !== null) window.turnstile.reset(state.widget); }
@@ -127,16 +124,17 @@
     $('send').disabled = true; $('ferr').hidden = true;
     api({
       accion: editing ? 'corregir' : 'enviar', id: editing, token: state.token,
-      cliente: clienteSel(), talento: $('tal').value, link: $('url').value.trim(),
+      cliente: clienteSel(), link: $('url').value.trim(),
       salida_nueva: document.querySelector('input[name=kind]:checked').value === 'new',
       valor_pagado: $('pay').value
     }).then(function (j) {
-      var t = nombre($('tal').value), cn = cliente(clienteSel());
+      var cn = cliente(clienteSel()), nuevo = j.envios.filter(function (x) { return x.id === (editing || (j.envios[0] && j.envios[0].id)); })[0];
+      var t = nuevo && (nuevo.talento_id || nuevo.talento_handle) ? ' de ' + quien(nuevo) : '';
       state.envios = j.envios; state.recien = editing || (j.envios[0] && j.envios[0].id); renderLista();
       $('done-h').textContent = editing ? 'Cambios guardados' : 'Publicación enviada';
       $('done-p').textContent = editing
-        ? 'Actualizamos la publicación de ' + t + '.'
-        : 'Recibimos la publicación de ' + t + ' en ' + NET[j.red] + ' para ' + cn + '. La medimos y aparece en el reporte en la próxima actualización.';
+        ? 'Actualizamos la publicación' + t + ' para ' + cn + '.'
+        : 'Recibimos la publicación' + t + ' en ' + NET[j.red] + ' para ' + cn + '. La medimos y aparece en el reporte en la próxima actualización.';
       resetForm(); $('f').hidden = true; $('done').hidden = false; $('again').focus();
     }).catch(function (e) {
       $('ferr').textContent = e.message; $('ferr').hidden = false;
@@ -166,7 +164,6 @@
       $('clientes').innerHTML = j.clientes.map(function (c, i) {
         return '<label><input type="radio" name="cli" value="' + c.id + '"' + (j.clientes.length === 1 ? ' checked' : '') + '><span><b>' + esc(c.nombre) + '</b>' + (c.campana ? '<small>' + esc(c.campana) + '</small>' : '') + '</span></label>';
       }).join('');
-      fillTalentos(clienteSel());
       renderLista();
       $('app').hidden = false; $('loading').hidden = true;
       var s = document.createElement('script');
@@ -175,12 +172,11 @@
     }).catch(function (e) { $('loading').hidden = true; $('app').hidden = false; blocked('No pudimos abrir el formulario', e.message); });
 
     $('url').addEventListener('input', showRead);
-    $('tal').addEventListener('change', check);
-    $('clientes').addEventListener('change', function () { fillTalentos(clienteSel()); check(); });
+    $('clientes').addEventListener('change', check);
     $('pay').addEventListener('input', function () { var d = $('pay').value.replace(/\D/g, '').slice(0, 11); $('pay').value = d ? Number(d).toLocaleString('es-CO') : ''; });
     $('f').addEventListener('submit', submit);
     $('cancel').addEventListener('click', resetForm);
-    $('again').addEventListener('click', function () { state.recien = null; renderLista(); $('done').hidden = true; $('f').hidden = false; $('tal').focus(); });
+    $('again').addEventListener('click', function () { state.recien = null; renderLista(); $('done').hidden = true; $('f').hidden = false; $('url').focus(); });
     $('sent').addEventListener('click', function (e) {
       var b = e.target.closest('button'); if (!b) return;
       if (b.dataset.edit) editar(b.dataset.edit);

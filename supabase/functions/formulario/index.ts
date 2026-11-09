@@ -35,16 +35,16 @@ class Falla extends Error {
 }
 
 // ---- Links -------------------------------------------------------------
-type Link = { red: "ig" | "tt" | "yt"; formato: string; clave: string };
+type Link = { red: "ig" | "tt" | "yt"; formato: string; clave: string; handle?: string };
 
 function leer(u: string): Link | null {
   let m: RegExpMatchArray | null;
   if ((m = u.match(/instagram\.com\/(?:[\w.]+\/)?(reel|reels|p|tv)\/([\w-]+)/i)))
     return { red: "ig", formato: m[1].toLowerCase() === "p" ? "Post" : "Reel", clave: `ig:${m[2]}` };
   if ((m = u.match(/instagram\.com\/stories\/([\w.]+)\/(\d+)/i)))
-    return { red: "ig", formato: "Historia", clave: `ig-story:${m[2]}` };
+    return { red: "ig", formato: "Historia", clave: `ig-story:${m[2]}`, handle: m[1].toLowerCase() };
   if ((m = u.match(/tiktok\.com\/@([\w.-]+)\/(?:video|photo)\/(\d+)/i)))
-    return { red: "tt", formato: "Video", clave: `tt:${m[2]}` };
+    return { red: "tt", formato: "Video", clave: `tt:${m[2]}`, handle: m[1].toLowerCase() };
   if ((m = u.match(/youtube\.com\/shorts\/([\w-]{6,})/i)))
     return { red: "yt", formato: "Short", clave: `yt:${m[1]}` };
   if ((m = u.match(/(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([\w-]{6,})/i)))
@@ -71,6 +71,18 @@ async function normalizar(raw: unknown): Promise<Link & { link: string }> {
     if (!l) l = { red: "tt", formato: "Video", clave: `tt-corto:${new URL(link).pathname.replace(/\//g, "")}` };
   }
   if (!l) throw new Falla(400, "No reconocemos ese link. Cópialo desde el botón Compartir de la publicación.");
+  // YouTube: el canal sale del oEmbed público. Instagram (reels/posts) se identifica al medir.
+  if (l.red === "yt" && !l.handle) {
+    try {
+      const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(link)}`,
+        { signal: AbortSignal.timeout(4000) });
+      if (r.ok) {
+        const j = await r.json();
+        const h = String(j.author_url ?? "").match(/youtube\.com\/@([\w.-]+)/i);
+        l.handle = h ? h[1].toLowerCase() : undefined;
+      }
+    } catch { /* se identifica al medir */ }
+  }
   return { ...l, link };
 }
 
@@ -110,14 +122,6 @@ async function limite(ipHash: string) {
     throw new Falla(429, "Hiciste muchos envíos seguidos. Espera unos minutos y vuelve a intentar.");
 }
 
-async function talentoDe(cuentaId: string, id: unknown) {
-  if (typeof id !== "string") throw new Falla(400, "Elige el talento.");
-  const { data } = await db.from("form_talentos").select("id").eq("id", id).eq("cuenta_id", cuentaId)
-    .eq("activo", true).maybeSingle();
-  if (!data) throw new Falla(400, "Elige el talento.");
-  return data.id as string;
-}
-
 function valor(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(String(v).replace(/\D/g, ""));
@@ -128,7 +132,7 @@ function valor(v: unknown): number | null {
 async function lista(cuentaIds: string[]) {
   if (!cuentaIds.length) return [];
   const { data } = await db.from("form_envios")
-    .select("id, cuenta_id, talento_id, link, red, formato, salida_nueva, valor_pagado_cop, estado, creado_en")
+    .select("id, cuenta_id, talento_id, talento_handle, link, red, formato, salida_nueva, valor_pagado_cop, estado, creado_en")
     .in("cuenta_id", cuentaIds).neq("estado", "quitada").order("creado_en", { ascending: false }).limit(200);
   return data ?? [];
 }
@@ -167,10 +171,16 @@ async function accion(b: Json, ip: string): Promise<Json> {
   }
 
   const cuenta_id = cuentaDe(ids, b.cliente);
-  const talento_id = await talentoDe(cuenta_id, b.talento);
   const l = await normalizar(b.link);
+  // Si el @ coincide con un talento ya cargado del cliente, se enlaza; si no, queda el @ para identificarlo al medir.
+  let talento_id: string | null = null;
+  if (l.handle) {
+    const { data: t } = await db.from("form_talentos").select("id").eq("cuenta_id", cuenta_id)
+      .eq("handle", l.handle).maybeSingle();
+    talento_id = t?.id ?? null;
+  }
   const fila = {
-    cuenta_id, talento_id, link: l.link, link_clave: l.clave, red: l.red, formato: l.formato,
+    cuenta_id, talento_id, talento_handle: l.handle ?? null, link: l.link, link_clave: l.clave, red: l.red, formato: l.formato,
     salida_nueva: b.salida_nueva !== false, valor_pagado_cop: valor(b.valor_pagado),
     ip_hash: ipHash, actualizado_en: new Date().toISOString(),
   };

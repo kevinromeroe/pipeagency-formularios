@@ -65,6 +65,10 @@ fieldset{border:0;margin:0;padding:0}
 .net.tt{background:var(--tt)}
 .net.yt{background:var(--yt)}
 
+.more{margin:0 0 22px;border:1.5px solid var(--line);border-radius:8px;padding:0 14px}
+.more summary{cursor:pointer;padding:12px 0;font-weight:600}
+.more[open]{padding-bottom:4px}
+.more .f:last-child{margin-bottom:14px}
 .ts{min-height:0;margin:0 0 14px}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
 .send{background:var(--navy);color:#fff;border:0;border-radius:8px;padding:13px 22px;font-weight:600;cursor:pointer;min-height:48px}
