@@ -86,6 +86,11 @@ fieldset{border:0;margin:0;padding:0}
 
 .mine{padding:32px;background:var(--soft);border-radius:0 10px 10px 0}
 .mine h2{font-size:18px;margin:0 0 4px;font-stretch:90%}
+.reps{display:grid;gap:8px;margin:10px 0 28px}
+.rep{display:block;text-align:center;background:var(--navy);color:#fff;text-decoration:none;font-weight:600;border-radius:8px;padding:12px 16px}
+.rep:hover{background:#1D3866}
+.rep.off{background:transparent;color:var(--muted);border:1.5px dashed var(--line);font-weight:400;font-size:14px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .rep:not(.off){background:var(--accent);color:#0E1420}}
 .mine > p{margin:0 0 18px;color:var(--muted);font-size:14px}
 .sent{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .sent li{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}

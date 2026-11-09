@@ -95,7 +95,7 @@ async function agenciaDe(slug: unknown, codigo: unknown) {
   if (!data || !data.activa) throw malo;
   // Acceso abierto: basta el enlace del sitio. Si no, se exige el código de acceso.
   if (!data.acceso_abierto && (typeof codigo !== "string" || data.codigo_hash !== await sha256(codigo))) throw malo;
-  const { data: cuentas } = await db.from("form_cuentas").select("id, nombre, campana, logo")
+  const { data: cuentas } = await db.from("form_cuentas").select("id, nombre, campana, logo, reporte_url")
     .eq("agencia_id", data.id).eq("activa", true).order("nombre");
   return { ...data, cuentas: cuentas ?? [] };
 }
@@ -157,7 +157,7 @@ async function accion(b: Json, ip: string): Promise<Json> {
       : { data: [] };
     return {
       agencia: { nombre: a.nombre, logo: a.logo },
-      clientes: a.cuentas.map((c) => ({ id: c.id, nombre: c.nombre, campana: c.campana, logo: c.logo })),
+      clientes: a.cuentas.map((c) => ({ id: c.id, nombre: c.nombre, campana: c.campana, logo: c.logo, reporte: c.reporte_url })),
       talentos: talentos ?? [], envios: await lista(ids),
     };
   }

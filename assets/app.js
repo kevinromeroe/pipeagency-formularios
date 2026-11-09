@@ -168,6 +168,11 @@
       $('clientes').innerHTML = j.clientes.map(function (c, i) {
         return '<label><input type="radio" name="cli" value="' + c.id + '"' + (j.clientes.length === 1 ? ' checked' : '') + '><span><b>' + esc(c.nombre) + '</b>' + (c.campana ? '<small>' + esc(c.campana) + '</small>' : '') + '</span></label>';
       }).join('');
+      $('reportes').innerHTML = j.clientes.map(function (c) {
+        return c.reporte
+          ? '<a class="rep" href="' + esc(c.reporte) + '" target="_blank" rel="noopener">Ver reporte de ' + esc(c.nombre) + '</a>'
+          : '<span class="rep off">Reporte de ' + esc(c.nombre) + ': en preparación</span>';
+      }).join('');
       renderLista();
       $('app').hidden = false; $('loading').hidden = true;
       var s = document.createElement('script');
