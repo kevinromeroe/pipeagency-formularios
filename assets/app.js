@@ -85,8 +85,8 @@
     r.className = 'read';
     r.innerHTML = '<span class="net ' + l.net + '" aria-hidden="true">' + ICON[l.net] + '</span><dl>' +
       '<div><dt>Red</dt><dd>' + NET[l.net] + '</dd></div><div><dt>Formato</dt><dd>' + l.fmt + '</dd></div>' +
-      '<div><dt>Talento</dt><dd>' + (l.who ? esc(l.who) : 'Lo identificamos al medir') + '</dd></div>' +
-      '<div><dt>Fecha y métricas</dt><dd>Las leemos nosotros</dd></div></dl>';
+
+      '</dl>';
     check();
   }
 
