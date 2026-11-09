@@ -1,6 +1,7 @@
 // Edge Function del formulario de publicaciones.
 // Acciones: cargar · enviar · corregir · quitar
-// Seguridad: código de acceso por cuenta (hash), Cloudflare Turnstile en cada escritura,
+// Una agencia (Felipe Agency) entra con un código y elige a cuál de sus clientes pertenece cada publicación.
+// Seguridad: código de acceso por agencia (hash), Cloudflare Turnstile en cada escritura,
 // links solo de Instagram/TikTok/YouTube, duplicados bloqueados y límite de envíos por IP.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -74,14 +75,21 @@ async function normalizar(raw: unknown): Promise<Link & { link: string }> {
 }
 
 // ---- Verificaciones ----------------------------------------------------
-async function cuentaDe(slug: unknown, codigo: unknown) {
+async function agenciaDe(slug: unknown, codigo: unknown) {
   if (typeof slug !== "string" || typeof codigo !== "string" || codigo.length < 8)
-    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu cuenta.");
-  const { data } = await db.from("form_cuentas").select("id, nombre, campana, logo, codigo_hash, activa")
+    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu agencia.");
+  const { data } = await db.from("form_agencias").select("id, nombre, logo, codigo_hash, activa")
     .eq("slug", slug).maybeSingle();
   if (!data || !data.activa || data.codigo_hash !== await sha256(codigo))
-    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu cuenta.");
-  return data;
+    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu agencia.");
+  const { data: cuentas } = await db.from("form_cuentas").select("id, nombre, campana, logo")
+    .eq("agencia_id", data.id).eq("activa", true).order("nombre");
+  return { ...data, cuentas: cuentas ?? [] };
+}
+
+function cuentaDe(ids: string[], id: unknown) {
+  if (typeof id !== "string" || !ids.includes(id)) throw new Falla(400, "Elige el cliente.");
+  return id;
 }
 
 async function humano(token: unknown, ip: string) {
@@ -117,22 +125,30 @@ function valor(v: unknown): number | null {
   return n;
 }
 
-async function lista(cuentaId: string) {
+async function lista(cuentaIds: string[]) {
+  if (!cuentaIds.length) return [];
   const { data } = await db.from("form_envios")
-    .select("id, talento_id, link, red, formato, salida_nueva, valor_pagado_cop, estado, creado_en")
-    .eq("cuenta_id", cuentaId).neq("estado", "quitada").order("creado_en", { ascending: false }).limit(200);
+    .select("id, cuenta_id, talento_id, link, red, formato, salida_nueva, valor_pagado_cop, estado, creado_en")
+    .in("cuenta_id", cuentaIds).neq("estado", "quitada").order("creado_en", { ascending: false }).limit(200);
   return data ?? [];
 }
 
 // ---- Acciones ----------------------------------------------------------
 async function accion(b: Json, ip: string): Promise<Json> {
-  const c = await cuentaDe(b.cuenta, b.codigo);
-  const ipHash = await sha256(`${ip}|${c.id}`);
+  const a = await agenciaDe(b.agencia, b.codigo);
+  const ids = a.cuentas.map((c) => c.id as string);
+  const ipHash = await sha256(`${ip}|${a.id}`);
 
   if (b.accion === "cargar") {
-    const { data: talentos } = await db.from("form_talentos").select("id, nombre")
-      .eq("cuenta_id", c.id).eq("activo", true).order("orden").order("nombre");
-    return { cuenta: { nombre: c.nombre, campana: c.campana, logo: c.logo }, talentos: talentos ?? [], envios: await lista(c.id) };
+    const { data: talentos } = ids.length
+      ? await db.from("form_talentos").select("id, cuenta_id, nombre").in("cuenta_id", ids).eq("activo", true)
+        .order("orden").order("nombre")
+      : { data: [] };
+    return {
+      agencia: { nombre: a.nombre, logo: a.logo },
+      clientes: a.cuentas.map((c) => ({ id: c.id, nombre: c.nombre, campana: c.campana, logo: c.logo })),
+      talentos: talentos ?? [], envios: await lista(ids),
+    };
   }
 
   if (!["enviar", "corregir", "quitar"].includes(String(b.accion))) throw new Falla(400, "Acción no válida.");
@@ -141,29 +157,30 @@ async function accion(b: Json, ip: string): Promise<Json> {
 
   if (b.accion === "quitar" || b.accion === "corregir") {
     const { data: e } = await db.from("form_envios").select("id, estado").eq("id", String(b.id ?? ""))
-      .eq("cuenta_id", c.id).maybeSingle();
+      .in("cuenta_id", ids).maybeSingle();
     if (!e) throw new Falla(404, "No encontramos esa publicación.");
     if (e.estado !== "en_cola") throw new Falla(409, "Esta publicación ya fue medida. Para cambiarla, escríbele a Datalítica.");
     if (b.accion === "quitar") {
       await db.from("form_envios").update({ estado: "quitada", actualizado_en: new Date().toISOString(), ip_hash: ipHash }).eq("id", e.id);
-      return { ok: true, envios: await lista(c.id) };
+      return { ok: true, envios: await lista(ids) };
     }
   }
 
-  const talento_id = await talentoDe(c.id, b.talento);
+  const cuenta_id = cuentaDe(ids, b.cliente);
+  const talento_id = await talentoDe(cuenta_id, b.talento);
   const l = await normalizar(b.link);
   const fila = {
-    cuenta_id: c.id, talento_id, link: l.link, link_clave: l.clave, red: l.red, formato: l.formato,
+    cuenta_id, talento_id, link: l.link, link_clave: l.clave, red: l.red, formato: l.formato,
     salida_nueva: b.salida_nueva !== false, valor_pagado_cop: valor(b.valor_pagado),
     ip_hash: ipHash, actualizado_en: new Date().toISOString(),
   };
   const q = b.accion === "enviar"
     ? db.from("form_envios").insert(fila)
-    : db.from("form_envios").update(fila).eq("id", String(b.id)).eq("cuenta_id", c.id);
+    : db.from("form_envios").update(fila).eq("id", String(b.id)).in("cuenta_id", ids);
   const { error } = await q;
-  if (error?.code === "23505") throw new Falla(409, "Esta publicación ya fue enviada. Si quieres cambiar algo, corrígela en la lista.");
+  if (error?.code === "23505") throw new Falla(409, "Esta publicación ya fue enviada para este cliente. Si quieres cambiar algo, corrígela en la lista.");
   if (error) throw new Falla(500, "No pudimos guardar la publicación. Vuelve a intentar en un momento.");
-  return { ok: true, red: l.red, formato: l.formato, envios: await lista(c.id) };
+  return { ok: true, red: l.red, formato: l.formato, envios: await lista(ids) };
 }
 
 Deno.serve(async (req) => {

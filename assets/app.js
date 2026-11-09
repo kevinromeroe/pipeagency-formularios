@@ -1,5 +1,5 @@
 /* Formulario de publicaciones · Datalítica
- * La cuenta sale de la página (/lci, /polar) y el código de acceso del enlace (#k=…).
+ * La agencia entra con su enlace (#k=…) y elige a cuál de sus clientes pertenece cada publicación.
  * Todo se guarda a través de la Edge Function `formulario` (Supabase). */
 (function () {
   var CFG = {
@@ -7,9 +7,9 @@
     apikey: 'sb_publishable_w9_HkfmW6ej1GxPFMvwV0A_usXTodfb',
     sitekey: '0x4AAAAAAF6CqCEKyCi1ZkaG'
   };
-  var CUENTA = document.body.dataset.cuenta;
+  var AGENCIA = document.body.dataset.agencia;
   var CODIGO = (location.hash.match(/k=([\w-]+)/) || [])[1] || '';
-  try { if (CODIGO) sessionStorage.setItem('k:' + CUENTA, CODIGO); else CODIGO = sessionStorage.getItem('k:' + CUENTA) || ''; } catch (e) {}
+  try { if (CODIGO) sessionStorage.setItem('k:' + AGENCIA, CODIGO); else CODIGO = sessionStorage.getItem('k:' + AGENCIA) || ''; } catch (e) {}
 
   var ICON = {
     ig: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',
@@ -21,10 +21,10 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
-  var state = { talentos: [], envios: [], token: '', widget: null, editando: null, recien: null };
+  var state = { clientes: [], talentos: [], envios: [], token: '', widget: null, editando: null, recien: null };
 
   function api(body) {
-    body.cuenta = CUENTA; body.codigo = CODIGO;
+    body.agencia = AGENCIA; body.codigo = CODIGO;
     return fetch(CFG.api, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: CFG.apikey },
@@ -51,6 +51,16 @@
   }
 
   function fecha(iso) { var d = new Date(iso); return d.getDate() + ' ' + MES[d.getMonth()]; }
+  function cliente(id) { var c = state.clientes.filter(function (x) { return x.id === id; })[0]; return c ? c.nombre : ''; }
+  function clienteSel() { var r = document.querySelector('input[name=cli]:checked'); return r ? r.value : ''; }
+  function fillTalentos(cid, keep) {
+    var list = state.talentos.filter(function (t) { return t.cuenta_id === cid; }), sel = $('tal');
+    if (!cid) { sel.disabled = true; sel.innerHTML = '<option value="">Primero elige el cliente</option>'; return; }
+    if (!list.length) { sel.disabled = true; sel.innerHTML = '<option value="">Todavía no hay talentos cargados para este cliente</option>'; return; }
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">Elige el talento</option>' + list.map(function (t) { return '<option value="' + t.id + '">' + esc(t.nombre) + '</option>'; }).join('');
+    if (keep) sel.value = keep;
+  }
   function nombre(id) { var t = state.talentos.filter(function (x) { return x.id === id; })[0]; return t ? t.nombre : 'Talento'; }
 
   function renderLista() {
@@ -59,7 +69,7 @@
     box.innerHTML = '<ul class="sent">' + state.envios.map(function (e) {
       var q = e.estado === 'en_cola';
       return '<li' + (e.id === state.recien ? ' class="new"' : '') + '><span class="net ' + e.red + '" role="img" aria-label="' + NET[e.red] + '">' + ICON[e.red] + '</span>' +
-        '<span class="who"><b>' + esc(nombre(e.talento_id)) + '</b><small>' + esc(e.formato) + ' · enviada el ' + fecha(e.creado_en) + (e.salida_nueva ? '' : ' · complementa una salida') + '</small></span>' +
+        '<span class="who"><b>' + esc(nombre(e.talento_id)) + '</b><small>' + esc(cliente(e.cuenta_id)) + ' · ' + esc(e.formato) + ' · enviada el ' + fecha(e.creado_en) + (e.salida_nueva ? '' : ' · complementa una salida') + '</small></span>' +
         '<span class="st ' + (q ? 'q' : 'm') + '">' + (q ? 'En cola' : 'Medida') + '</span>' +
         (q ? '<span class="acts"><button type="button" class="link-btn" data-edit="' + e.id + '">Corregir</button><button type="button" class="link-btn" data-del="' + e.id + '">Quitar</button></span>' : '') + '</li>';
     }).join('') + '</ul>';
@@ -67,7 +77,7 @@
 
   function check() {
     var l = leer($('url').value);
-    $('send').disabled = !(state.token && $('tal').value && l && !l.bad);
+    $('send').disabled = !(state.token && clienteSel() && $('tal').value && l && !l.bad);
     $('wait').hidden = !!state.token;
   }
 
@@ -85,7 +95,7 @@
   }
 
   function resetForm() {
-    $('f').reset(); state.editando = null; $('read').hidden = true;
+    $('f').reset(); state.editando = null; $('read').hidden = true; fillTalentos(clienteSel());
     $('h-form').textContent = 'Enviar una publicación'; $('send').textContent = 'Enviar publicación'; $('cancel').hidden = true;
     $('ferr').hidden = true; check();
   }
@@ -93,7 +103,8 @@
   function editar(id) {
     var e = state.envios.filter(function (x) { return x.id === id; })[0]; if (!e) return;
     state.editando = id;
-    $('tal').value = e.talento_id; $('url').value = e.link;
+    var r = document.querySelector('input[name=cli][value="' + e.cuenta_id + '"]'); if (r) r.checked = true;
+    fillTalentos(e.cuenta_id, e.talento_id); $('url').value = e.link;
     document.querySelector('input[name=kind][value=' + (e.salida_nueva ? 'new' : 'add') + ']').checked = true;
     $('pay').value = e.valor_pagado_cop ? Number(e.valor_pagado_cop).toLocaleString('es-CO') : '';
     $('h-form').textContent = 'Corregir publicación'; $('send').textContent = 'Guardar cambios'; $('cancel').hidden = false;
@@ -116,16 +127,16 @@
     $('send').disabled = true; $('ferr').hidden = true;
     api({
       accion: editing ? 'corregir' : 'enviar', id: editing, token: state.token,
-      talento: $('tal').value, link: $('url').value.trim(),
+      cliente: clienteSel(), talento: $('tal').value, link: $('url').value.trim(),
       salida_nueva: document.querySelector('input[name=kind]:checked').value === 'new',
       valor_pagado: $('pay').value
     }).then(function (j) {
-      var t = nombre($('tal').value);
+      var t = nombre($('tal').value), cn = cliente(clienteSel());
       state.envios = j.envios; state.recien = editing || (j.envios[0] && j.envios[0].id); renderLista();
       $('done-h').textContent = editing ? 'Cambios guardados' : 'Publicación enviada';
       $('done-p').textContent = editing
         ? 'Actualizamos la publicación de ' + t + '.'
-        : 'Recibimos la publicación de ' + t + ' en ' + NET[j.red] + '. La medimos y aparece en el reporte en la próxima actualización.';
+        : 'Recibimos la publicación de ' + t + ' en ' + NET[j.red] + ' para ' + cn + '. La medimos y aparece en el reporte en la próxima actualización.';
       resetForm(); $('f').hidden = true; $('done').hidden = false; $('again').focus();
     }).catch(function (e) {
       $('ferr').textContent = e.message; $('ferr').hidden = false;
@@ -148,13 +159,14 @@
   function start() {
     if (!CODIGO) return blocked('Falta el código de acceso', 'Abre el formulario desde el enlace que te compartió Datalítica.');
     api({ accion: 'cargar' }).then(function (j) {
-      var c = j.cuenta;
-      document.title = 'Enviar publicaciones · ' + c.nombre;
-      $('brand').innerHTML = (c.logo ? '<img src="../' + esc(c.logo) + '" alt="' + esc(c.nombre) + '">' : '<span class="wordmark">' + esc(c.nombre) + '</span>') +
-        '<div><b>' + esc(c.nombre) + '</b>' + (c.campana ? '<small>' + esc(c.campana) + '</small>' : '') + '</div>';
-      state.talentos = j.talentos; state.envios = j.envios;
-      $('tal').innerHTML = '<option value="">Elige el talento</option>' + j.talentos.map(function (t) { return '<option value="' + t.id + '">' + esc(t.nombre) + '</option>'; }).join('');
-      if (!j.talentos.length) { $('tal').disabled = true; $('tal').innerHTML = '<option>Todavía no hay talentos cargados</option>'; }
+      var a = j.agencia;
+      document.title = 'Enviar publicaciones · ' + a.nombre;
+      $('brand').innerHTML = (a.logo ? '<img src="' + esc(a.logo) + '" alt="' + esc(a.nombre) + '">' : '<span class="wordmark">' + esc(a.nombre) + '</span>');
+      state.clientes = j.clientes; state.talentos = j.talentos; state.envios = j.envios;
+      $('clientes').innerHTML = j.clientes.map(function (c, i) {
+        return '<label><input type="radio" name="cli" value="' + c.id + '"' + (j.clientes.length === 1 ? ' checked' : '') + '><span><b>' + esc(c.nombre) + '</b>' + (c.campana ? '<small>' + esc(c.campana) + '</small>' : '') + '</span></label>';
+      }).join('');
+      fillTalentos(clienteSel());
       renderLista();
       $('app').hidden = false; $('loading').hidden = true;
       var s = document.createElement('script');
@@ -164,6 +176,7 @@
 
     $('url').addEventListener('input', showRead);
     $('tal').addEventListener('change', check);
+    $('clientes').addEventListener('change', function () { fillTalentos(clienteSel()); check(); });
     $('pay').addEventListener('input', function () { var d = $('pay').value.replace(/\D/g, '').slice(0, 11); $('pay').value = d ? Number(d).toLocaleString('es-CO') : ''; });
     $('f').addEventListener('submit', submit);
     $('cancel').addEventListener('click', resetForm);
