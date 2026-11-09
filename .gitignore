@@ -1,0 +1,4 @@
+supabase/seed*.sql
+supabase/.temp/
+.env
+*.local
