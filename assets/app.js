@@ -25,8 +25,10 @@
 
   function api(body) {
     body.agencia = AGENCIA; body.codigo = CODIGO;
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : null;
     return fetch(CFG.api, {
-      method: 'POST',
+      method: 'POST', signal: ctrl ? ctrl.signal : undefined, cache: 'no-store',
       headers: { 'Content-Type': 'application/json', apikey: CFG.apikey },
       body: JSON.stringify(body)
     }).then(function (r) {
@@ -34,7 +36,8 @@
         if (!r.ok) throw new Error(j.error || 'No pudimos conectarnos. Revisa tu conexión y vuelve a intentar.');
         return j;
       });
-    }, function () { throw new Error('No pudimos conectarnos. Revisa tu conexión y vuelve a intentar.'); });
+    }, function () { throw new Error('No pudimos conectarnos. Revisa tu conexión y vuelve a intentar.'); })
+      .then(function (j) { clearTimeout(timer); return j; }, function (e) { clearTimeout(timer); throw e; });
   }
 
   // Lectura del link en el navegador (el servidor vuelve a validarlo)
@@ -141,8 +144,9 @@
     }).then(newToken);
   }
 
-  function blocked(title, text) {
-    $('app').innerHTML = '<div class="blocked"><h1>' + esc(title) + '</h1><p>' + esc(text) + '</p></div>';
+  function blocked(title, text, retry) {
+    $('app').innerHTML = '<div class="blocked"><h1>' + esc(title) + '</h1><p>' + esc(text) + '</p>' +
+      (retry ? '<p style="margin-top:18px"><button type="button" class="ghost" onclick="location.reload()">Volver a cargar</button></p>' : '') + '</div>';
   }
 
   window.onTurnstile = function () {
@@ -169,7 +173,7 @@
       var s = document.createElement('script');
       s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onTurnstile'; s.async = true;
       document.head.appendChild(s);
-    }).catch(function (e) { $('loading').hidden = true; $('app').hidden = false; blocked('No pudimos abrir el formulario', e.message); });
+    }).catch(function (e) { $('loading').hidden = true; $('app').hidden = false; blocked('No pudimos abrir el formulario', e.message, true); });
 
     $('url').addEventListener('input', showRead);
     $('clientes').addEventListener('change', check);
