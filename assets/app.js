@@ -94,7 +94,7 @@
   }
 
   function resetForm() {
-    $('f').reset(); state.editando = null; $('read').hidden = true; $('more').open = false;
+    $('f').reset(); state.editando = null; $('read').hidden = true; $('more').open = false; $('pay').placeholder = '0';
     $('h-form').textContent = 'Enviar una publicación'; $('send').textContent = 'Enviar publicación'; $('cancel').hidden = true;
     $('ferr').hidden = true; check();
   }
@@ -105,8 +105,8 @@
     var r = document.querySelector('input[name=cli][value="' + e.cuenta_id + '"]'); if (r) r.checked = true;
     $('url').value = e.link;
     document.querySelector('input[name=kind][value=' + (e.salida_nueva ? 'new' : 'add') + ']').checked = true;
-    $('pay').value = e.valor_pagado_cop ? Number(e.valor_pagado_cop).toLocaleString('es-CO') : '';
-    $('more').open = !e.salida_nueva || !!e.valor_pagado_cop;
+    $('pay').value = ''; $('pay').placeholder = 'Déjalo vacío para conservar el valor';
+    $('more').open = !e.salida_nueva;
     $('h-form').textContent = 'Corregir publicación'; $('send').textContent = 'Guardar cambios'; $('cancel').hidden = false;
     $('done').hidden = true; $('f').hidden = false; showRead(); $('url').focus();
   }
@@ -145,6 +145,7 @@
   }
 
   function blocked(title, text, retry) {
+    $('loading').hidden = true; $('app').hidden = false;
     $('app').innerHTML = '<div class="blocked"><h1>' + esc(title) + '</h1><p>' + esc(text) + '</p>' +
       (retry ? '<p style="margin-top:18px"><button type="button" class="ghost" onclick="location.reload()">Volver a cargar</button></p>' : '') + '</div>';
   }
@@ -159,7 +160,6 @@
   };
 
   function start() {
-    if (!CODIGO) return blocked('Falta el código de acceso', 'Abre el formulario desde el enlace que te compartió Datalítica.');
     api({ accion: 'cargar' }).then(function (j) {
       var a = j.agencia;
       document.title = 'Enviar publicaciones · ' + a.nombre;

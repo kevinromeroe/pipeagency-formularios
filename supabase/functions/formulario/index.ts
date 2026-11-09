@@ -88,12 +88,13 @@ async function normalizar(raw: unknown): Promise<Link & { link: string }> {
 
 // ---- Verificaciones ----------------------------------------------------
 async function agenciaDe(slug: unknown, codigo: unknown) {
-  if (typeof slug !== "string" || typeof codigo !== "string" || codigo.length < 8)
-    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu agencia.");
-  const { data } = await db.from("form_agencias").select("id, nombre, logo, codigo_hash, activa")
+  const malo = new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu agencia.");
+  if (typeof slug !== "string") throw malo;
+  const { data } = await db.from("form_agencias").select("id, nombre, logo, codigo_hash, activa, acceso_abierto")
     .eq("slug", slug).maybeSingle();
-  if (!data || !data.activa || data.codigo_hash !== await sha256(codigo))
-    throw new Falla(401, "Este enlace no es válido. Pide a Datalítica el enlace de tu agencia.");
+  if (!data || !data.activa) throw malo;
+  // Acceso abierto: basta el enlace del sitio. Si no, se exige el código de acceso.
+  if (!data.acceso_abierto && (typeof codigo !== "string" || data.codigo_hash !== await sha256(codigo))) throw malo;
   const { data: cuentas } = await db.from("form_cuentas").select("id, nombre, campana, logo")
     .eq("agencia_id", data.id).eq("activa", true).order("nombre");
   return { ...data, cuentas: cuentas ?? [] };
@@ -132,7 +133,7 @@ function valor(v: unknown): number | null {
 async function lista(cuentaIds: string[]) {
   if (!cuentaIds.length) return [];
   const { data } = await db.from("form_envios")
-    .select("id, cuenta_id, talento_id, talento_handle, link, red, formato, salida_nueva, valor_pagado_cop, estado, creado_en")
+    .select("id, cuenta_id, talento_id, talento_handle, link, red, formato, salida_nueva, estado, creado_en")
     .in("cuenta_id", cuentaIds).neq("estado", "quitada").order("creado_en", { ascending: false }).limit(200);
   return data ?? [];
 }
@@ -181,9 +182,11 @@ async function accion(b: Json, ip: string): Promise<Json> {
   }
   const fila = {
     cuenta_id, talento_id, talento_handle: l.handle ?? null, link: l.link, link_clave: l.clave, red: l.red, formato: l.formato,
-    salida_nueva: b.salida_nueva !== false, valor_pagado_cop: valor(b.valor_pagado),
-    ip_hash: ipHash, actualizado_en: new Date().toISOString(),
-  };
+    salida_nueva: b.salida_nueva !== false, ip_hash: ipHash, actualizado_en: new Date().toISOString(),
+  } as Record<string, unknown>;
+  // El valor pagado no se devuelve al navegador; al corregir, vacío = conservar el actual.
+  const v = valor(b.valor_pagado);
+  if (b.accion === "enviar" || v !== null) fila.valor_pagado_cop = v;
   const q = b.accion === "enviar"
     ? db.from("form_envios").insert(fila)
     : db.from("form_envios").update(fila).eq("id", String(b.id)).in("cuenta_id", ids);
