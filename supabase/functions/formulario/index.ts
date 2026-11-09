@@ -112,7 +112,13 @@ async function humano(token: unknown, ip: string) {
   const body = new URLSearchParams({ secret, response: token, remoteip: ip });
   const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body });
   const j = await r.json();
-  if (!j.success) throw new Falla(400, "La verificación venció. Vuelve a intentar.");
+  if (!j.success) {
+    const codes: string[] = j["error-codes"] ?? [];
+    console.log("turnstile", JSON.stringify(codes));
+    if (codes.some((c) => c.includes("secret")))
+      throw new Falla(500, "La verificación no está bien configurada. Avísale a Datalítica (código: clave).");
+    throw new Falla(400, "La verificación venció. Marca de nuevo la casilla o recarga la página y vuelve a intentar.");
+  }
 }
 
 async function limite(ipHash: string) {
